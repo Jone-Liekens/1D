@@ -37,6 +37,7 @@ class DefinaSolution():
         heatmap(T_mesh, X_mesh, abs(self.u_xt[:, start:end:step]), "abs(u(x,t))")
 
         heatmap(T_mesh, X_mesh, self.Y_xt[:, start:end:step], "Y(x,t)")
+        heatmap(T_mesh, X_mesh, self.eta_xt[:, start:end:step], "$\\eta(x,t)$")
 
     
     def other_plots(self):
@@ -94,10 +95,10 @@ class Defina():
         self.nx = 500
         self.nr_periods = 6
 
-        self.r = 0.24
+        self.r = 0.5
         self.c_d = 0.03
 
-        self.a_r = 1e-2
+        self.a_r = 5e-3
 
         self._update_u = self._update_u_linear_friction
 
@@ -116,28 +117,32 @@ class Defina():
 
         # store the results here
         self.t = np.linspace(0, self.dt * self.nt, self.nt + 1)
-        # self.x = np.linspace(-self.dx, 1.2 + self.dx, self.nx + 2) 
         self.x = np.arange(-self.dx, 1 + self.dL + self.dx, self.dx) # in reality, 1.08 should be enough but 1.2 or 1.5 to be safe
+
+        self.h_x = self.x.copy() # constant bed
+
 
         self.D_xt = np.zeros((len(self.x), len(self.t)))
         self.u_xt = np.zeros((len(self.x), len(self.t)))
         self.eta_xt = np.zeros((len(self.x), len(self.t)))
         self.Y_xt = np.zeros((len(self.x), len(self.t)))
+
+        self.clipped = np.zeros(self.eta_xt.shape)
         
         # initial conditions
         self.D_xt[:, 0] = (self.H + self.A) / self.H - self.x # since x = h_x
+        
         self.eta_xt[:, 0] = (1 + scipy.special.erf(2 * self.D_xt[:, 0] / self.a_r))/ 2
-
-        threshold = 1e-12
+        # threshold = 1e-20
+        threshold = 1e-8
 
         self.eta_xt[:, 0] = np.clip(self.eta_xt[:, 0], threshold, None)
-        # self.Y_xt[:, 0] = np.clip()
 
         self.Y_xt[:, 0] = self.eta_xt[:, 0] * self.D_xt[:, 0] + self.a_r / (4 * sqrt(pi)) * exp(-4 * (self.D_xt[:, 0] / self.a_r)**2 )
 
 
 
-        for timestep in range(self.nt):
+        for t_i in range(self.nt):
 
             # if timestep < 100:
             #     print(self.D_xt[-100:, timestep])
@@ -145,28 +150,70 @@ class Defina():
             #     print(self.Y_xt[-100:, timestep])
             # if timestep % 1000 == 0:
             #     print(timestep)
-            self.D_xt[:, timestep + 1] = self._update_D(self.u_xt[:, timestep], self.D_xt[:, timestep], self.eta_xt[:, timestep], self.Y_xt[:, timestep], timestep * self.dt)
-            self.eta_xt[:, timestep + 1] = self._update_eta(self.D_xt[:, timestep + 1])\
-            
-            self.eta_xt[:, timestep + 1] = np.clip(self.eta_xt[:, timestep + 1], threshold, None)
-            self.Y_xt[:, timestep + 1] = self._update_Y(self.D_xt[:, timestep + 1], self.eta_xt[:, timestep + 1])
-            self.u_xt[:, timestep + 1] = self._update_u(self.u_xt[:, timestep], self.x, self.D_xt[:, timestep], self.Y_xt[:, timestep + 1])
 
-        self.D_xt = self.D_xt
-        self.u_xt = self.u_xt
+            self._update_D(t_i)
+            self._update_eta(t_i)
+            self.clipped[:, t_i + 1] = self.eta_xt[:, t_i + 1] < threshold
+            self.eta_xt[:, t_i + 1] = np.clip(self.eta_xt[:, t_i + 1], threshold, None)
+            self._update_Y(t_i)
+            self._update_u(t_i)
 
-    def _update_eta(self, D_x2):
-        eta_x2 = (1 + scipy.special.erf(2 * D_x2 / self.a_r))/ 2
-        return eta_x2
+
+
+    def _update_eta(self, t_i):
+        D_x2 = self.D_xt[:, t_i + 1]
+        eta_x2 = (1 + scipy.special.erf(2 * D_x2 / self.a_r)) / 2
+
+        self.eta_xt[:, t_i + 1] = eta_x2
     
-    def _update_Y(self, D_x2, eta_x2):
+
+    def _update_Y(self, t_i):
+        D_x2 = self.D_xt[:, t_i + 1]
+        eta_x2 = self.eta_xt[:, t_i + 1]
+
         s1 = (D_x2 / self.a_r)**2
         if (s1 > 1e9).any(): 
             print("here")
+            print(t_i)
+            p_i = np.argmax(abs(s1))
             print(np.argmax(abs(s1)))
-            plt.plot(eta_x2)
+
+            print(self.eta_xt[p_i - 5:p_i + 5, t_i - 1])
+            print(self.eta_xt[p_i - 5:p_i + 5, t_i])
+            print(self.eta_xt[p_i - 5:p_i + 5, t_i + 1])
+
+            print("-" * 5)
+            print(self.D_xt[p_i - 5:p_i + 5, t_i - 2])
+            print(self.D_xt[p_i - 5:p_i + 5, t_i - 1])
+            print(self.D_xt[p_i - 5:p_i + 5, t_i])
+            print(self.D_xt[p_i - 5:p_i + 5, t_i + 1])
+
+            print("-" * 5)
+            print(self.clipped[p_i - 5:p_i + 5, t_i - 2])
+            print(self.clipped[p_i - 5:p_i + 5, t_i - 1])
+            print(self.clipped[p_i - 5:p_i + 5, t_i])
+            print(self.clipped[p_i - 5:p_i + 5, t_i + 1])
+
+
+            t_condition = self.t < 15
+            x_condition = np.logical_and(self.x < 1.15, self.x > 0.95)
+
+
+            tmesh, xmesh = np.meshgrid(self.t[t_condition], self.x[x_condition])
+            fig, ax = plt.subplots(figsize=(20, 20))
+
+            im = ax.pcolormesh(tmesh, xmesh, self.clipped[x_condition].T[t_condition].T, cmap='inferno', shading='nearest')
             plt.show()
-            plt.plot(D_x2)
+
+
+            raise SystemError
+
+
+            plt.plot(self.eta_xt[p_i - 5:p_i + 5, t_i-4:t_i+2], 'o', linewidth=0)
+            plt.legend(range(7))
+            plt.show()
+            plt.semilogy(self.D_xt[p_i - 5:p_i + 5, t_i-4:t_i+2], 'o', linewidth=0)
+            plt.legend(range(7))
             plt.show()
             
             print(len(s1))
@@ -176,16 +223,24 @@ class Defina():
             raise SystemError
         p1 =  exp(-4 *  s1)
         Y_x2 = eta_x2 * D_x2 + self.a_r / (4 * sqrt(pi)) * p1
-        return Y_x2
+        self.Y_xt[:, t_i + 1] = Y_x2
 
 
-    def _update_D(self, u_x, D_x, eta_x, Y_x, current_t):
+    def _update_D(self, t_i):
 
-        D_x2 = np.zeros(D_x.shape)
+        current_t = self.t[t_i]
+
+        D_x2 = self.D_xt[:, t_i + 1] # immediately set them here
+        
+        D_x = self.D_xt[:, t_i]
+        eta_x = self.eta_xt[:, t_i]
+        Y_x = self.Y_xt[:, t_i]
+        u_x = self.u_xt[:, t_i]
+
+
+
         D_x2[0] = self.A / self.H * np.cos(current_t) + 1
         D_x2[-1] = 0 # redundant ? since initialisation already sets it at zero ofc
-
-        # print(u_x[-1], u_x[-2], u_x[-3])
 
         dYudx = -(-3 * Y_x[-1] * u_x[-1] + 4 * Y_x[-2] * u_x[-2] - Y_x[-3] * u_x[-3]) / (2*self.dx)
         D_x2[-1] = D_x[-1] - self.dt * dYudx / eta_x[-1]
@@ -193,21 +248,25 @@ class Defina():
         dYudx = (Y_x[2:] * u_x[2:] - Y_x[:-2] * u_x[:-2]) / (2 * self.dx)
         D_x2[1:-1] = (D_x[2:] + D_x[:-2]) / 2 - self.dt * dYudx / eta_x[1:-1]
         
-        return D_x2
+        # self.D_xt[:, t_i + 1] = D_x2
     
 
-    def _update_u_linear_friction(self, u_x, h_x, D_x, Y_x2):
+    def _update_u_linear_friction(self, t_i):
+        current_t = self.t[t_i]
+
+        D_x = self.D_xt[:, t_i]
+        Y_x2 = self.Y_xt[:, t_i + 1]
+        u_x = self.u_xt[:, t_i]
+        u_x2 = self.u_xt[:, t_i + 1]
+
 
         Lambda = self.r / Y_x2
 
-
-        u_x_t2 = np.zeros(u_x.shape)
-
         dudx = (-3 * u_x[0] + 4 * u_x[1] - u_x[2]) / (2*self.dx)
         dDdx = (-3 * D_x[0] + 4 * D_x[1] - D_x[2]) / (2*self.dx)
-        dhdx = (-3 * h_x[0] + 4 * h_x[1] - h_x[2]) / (2*self.dx)
+        dhdx = (-3 * self.h_x[0] + 4 * self.h_x[1] - self.h_x[2]) / (2*self.dx)
 
-        u_x_t2[0]    = (
+        u_x2[0]    = (
                             u_x[0] \
                             - self.dt * u_x[0] * dudx 
                             - self.dt * self.kappa * (dDdx + dhdx)
@@ -215,7 +274,7 @@ class Defina():
 
         dudx = -(-3 * u_x[-1] + 4 * u_x[-2] - u_x[-3]) / (2*self.dx)
         dDdx = -(-3 * D_x[-1] + 4 * D_x[-2] - D_x[-3]) / (2*self.dx)
-        dhdx = -(-3 * h_x[-1] + 4 * h_x[-2] - h_x[-3]) / (2*self.dx)
+        dhdx = -(-3 * self.h_x[-1] + 4 * self.h_x[-2] - self.h_x[-3]) / (2*self.dx)
 
         # u_x_t2[-1]   = (
         #                     u_x[-1] \
@@ -223,22 +282,20 @@ class Defina():
         #                     - self.dt * self.kappa * (dDdx + dhdx)
         #                 ) / (1 + Lambda[-1] * self.dt)
 
-        u_x_t2[-1] = 0
+        u_x2[-1] = 0
         
 
         dudx = (u_x[2:] - u_x[:-2]) / (2*self.dx)
         dDdx = (D_x[2:] - D_x[:-2]) / (2*self.dx)
-        dhdx = (h_x[2:] - h_x[:-2]) / (2*self.dx)
+        dhdx = (self.h_x[2:] - self.h_x[:-2]) / (2*self.dx)
 
-        u_x_t2[1:-1] = (
+        u_x2[1:-1] = (
                             (u_x[2:] + u_x[:-2]) / 2 \
                             - self.dt * u_x[1:-1] * dudx \
                             - self.dt * self.kappa * (dDdx + dhdx)
                         ) / (1 + Lambda[1:-1] * self.dt)
         
-        return u_x_t2
-
-
+    
 
 
 if __name__ == "__main__":
