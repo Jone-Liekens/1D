@@ -1,4 +1,6 @@
 venv/**
+output/**
+__pycache__/**
 .*
 !.gitignore
 test*
