@@ -2,5 +2,6 @@ venv/**
 output/**
 __pycache__/**
 .*
+*.pkl
 !.gitignore
 test*

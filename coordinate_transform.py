@@ -6,69 +6,7 @@ import scipy
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-def heatmap(T_mesh, X_mesh, V_xt, title = "Something"):
-    fig, ax = plt.subplots()
-
-    print(T_mesh.shape, X_mesh.shape, V_xt.shape)
-
-    im = ax.pcolormesh(T_mesh, X_mesh, V_xt, cmap='inferno', shading='nearest')
-    fig.colorbar(im, ax=ax, label='Value of $u$')
-
-    ax.set_xlabel('Time (t)')
-    ax.set_ylabel('Spatial Dimension (x)')
-    ax.set_title(title)
-
-    plt.show()
-
-def spatial_aggregates(x, v_xt, title = "Something"):
-
-    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
-
-    axs[0].plot(x, mean(v_xt, axis=1))
-    axs[0].set_title('Mean ' + title)
-    axs[0].set_xlabel('Space (x)')
-
-    axs[1].plot(x, max(v_xt, axis=1))
-    axs[1].set_title('Max ' + title)
-    axs[1].set_xlabel('Space (x)')
-
-    axs[2].plot(x, min(v_xt, axis=1))
-    axs[2].set_title('Min ' + title)
-    axs[2].set_xlabel('Space (x)')
-
-    axs[3].plot(x, min(abs(v_xt), axis=1))
-    axs[3].set_title('Min abs ' + title)
-    axs[3].set_xlabel('Space (x)')
-
-    plt.show()
-
-
-def t_snapshots(x, t, v_xt, title="Something", n_snapshots=7):
-
-    for n in range(n_snapshots):
-        i = (n * len(t)) // n_snapshots
-        plt.plot(x, v_xt[:, i])
-
-    plt.legend(["t = " + str(t[ (n * len(t)) // n_snapshots])[:6] for n in range(n_snapshots)])
-    plt.title(title)
-    plt.xlabel('Space (x)')
-    plt.show()
-
-
-# this is not correct: x should be multiplied by l(t)
-def x_snapshots(x, t, v_xt, title="Something", n_snapshots=7):
-    x = x[3:-3]
-    for n in range(n_snapshots):
-        i = (n * len(x)) // n_snapshots
-        plt.plot(t, v_xt[i, :])
-
-    plt.legend(["x = " + str(x[ (n * len(x)) // n_snapshots])[:6] for n in range(n_snapshots)])
-    plt.title(title)
-    plt.xlabel('Time (i)')
-    plt.show()
-
-
-
+from plots import *
 
 class CoordinateTransformSolution():
 
@@ -105,8 +43,8 @@ class CoordinateTransformSolution():
         t_snapshots(self.x, self.t, self.u_xt, "velocity")
         t_snapshots(self.x, self.t, self.D_xt + self.x[:, np.newaxis] * self.l_t[np.newaxis, :], "waterlevel")
 
-        x_snapshots(self.x, self.t, self.u_xt, "velocity")
-        x_snapshots(self.x, self.t, self.D_xt + self.x[:, np.newaxis] * self.l_t[np.newaxis, :], "waterlevel")
+        # x_snapshots(self.x, self.t, self.u_xt, "velocity")
+        # x_snapshots(self.x, self.t, self.D_xt + self.x[:, np.newaxis] * self.l_t[np.newaxis, :], "waterlevel")
 
 
 
