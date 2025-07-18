@@ -10,6 +10,8 @@ import os
 def heatmap(T_mesh, X_mesh, V_xt, title = "Something"):
     fig, ax = plt.subplots()
 
+    # print(T_mesh.shape, X_mesh.shape, V_xt.shape)
+
     im = ax.pcolormesh(T_mesh, X_mesh, V_xt, cmap='inferno', shading='nearest')
     fig.colorbar(im, ax=ax)#, label='Value of $u$')
 
@@ -64,6 +66,27 @@ def x_snapshots(x, t, v_xt, title="Something", n_snapshots=7):
     plt.legend(["x = " + str(x[ (n * len(x)) // n_snapshots])[:6] for n in range(n_snapshots)])
     plt.title(title)
     plt.xlabel('Time (i)')
+    plt.show()
+
+
+def harmonic_components(x, r, c, s, title="Harmonics"):
+    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+
+
+    axs[0].plot(x, r)
+    axs[0].set_title('Residual')
+    axs[0].set_xlabel('Space (x)')
+
+    axs[1].plot(x, c)
+    axs[1].set_title('Cosine')
+    axs[1].set_xlabel('Space (x)')
+
+    axs[2].plot(x, s)
+    axs[2].set_title('Sine')
+    axs[2].set_xlabel('Space (x)')
+
+    fig.suptitle(title, fontsize=16, fontweight='bold')
+
     plt.show()
 
 

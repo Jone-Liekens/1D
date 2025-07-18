@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 
-from plots import *
+from single_inlet_moving_boundary.plots import *
 
 
 class DefinaSolution():
@@ -23,7 +23,7 @@ class DefinaSolution():
     def heatmaps(self):
         start, end, step = 50000, 100000, 10
         # start, end, step = 0, 1000, 1
-        start, end, step = 0, 27070, 10
+        # start, end, step = 0, 27070, 10
 
 
         T_mesh = np.tile(self.t[start:end:step], (len(self.x), 1))
@@ -52,8 +52,7 @@ class DefinaSolution():
         # x_snapshots(self.x, self.t, self.D_xt + self.x[:, np.newaxis] * np.ones(self.t.shape)[np.newaxis, :], "waterlevel")
 
 
-
-    def one_period_solution(self, period_n = 2):
+    def one_period_solution(self, period_n = 5):
         start_t = period_n * (2*pi)
         end_t = start_t + 2 * pi
 
@@ -69,12 +68,6 @@ class DefinaSolution():
 
         p_sol = DefinaSolution(pt, px, pD_xt, pu_xt, peta_xt, pY_xt)
         return p_sol
-    
-
-
-            
-        
-
 
 
 class Defina():
@@ -86,7 +79,7 @@ class Defina():
         self.H = 12
         self.L = 1.9e4
 
-        self.dL = 0.5
+        self.dL = 0.2
 
         self.h0 = 0.0025
         # h0 = 0.00025
@@ -95,10 +88,10 @@ class Defina():
         self.nx = 500
         self.nr_periods = 6
 
-        self.r = 0.5
+        self.r = 0.1
         self.c_d = 0.03
 
-        self.a_r = 5e-3
+        self.a_r = 1e-2
 
         self._update_u = self._update_u_linear_friction
 
@@ -107,7 +100,6 @@ class Defina():
         return DefinaSolution(self.t, self.x, self.D_xt, self.u_xt, self.eta_xt, self.Y_xt)
     
 
-    
     def solve_pde(self):
 
         # numerical precision
@@ -119,7 +111,7 @@ class Defina():
         self.t = np.linspace(0, self.dt * self.nt, self.nt + 1)
         self.x = np.arange(-self.dx, 1 + self.dL + self.dx, self.dx) # in reality, 1.08 should be enough but 1.2 or 1.5 to be safe
 
-        self.h_x = self.x.copy() # constant bed
+        self.h_x = self.x.copy() # fixed bed
 
 
         self.D_xt = np.zeros((len(self.x), len(self.t)))
@@ -237,8 +229,6 @@ class Defina():
         Y_x = self.Y_xt[:, t_i]
         u_x = self.u_xt[:, t_i]
 
-
-
         D_x2[0] = self.A / self.H * np.cos(current_t) + 1
         D_x2[-1] = 0 # redundant ? since initialisation already sets it at zero ofc
 
@@ -247,18 +237,14 @@ class Defina():
 
         dYudx = (Y_x[2:] * u_x[2:] - Y_x[:-2] * u_x[:-2]) / (2 * self.dx)
         D_x2[1:-1] = (D_x[2:] + D_x[:-2]) / 2 - self.dt * dYudx / eta_x[1:-1]
-        
-        # self.D_xt[:, t_i + 1] = D_x2
     
 
     def _update_u_linear_friction(self, t_i):
-        current_t = self.t[t_i]
 
         D_x = self.D_xt[:, t_i]
         Y_x2 = self.Y_xt[:, t_i + 1]
         u_x = self.u_xt[:, t_i]
         u_x2 = self.u_xt[:, t_i + 1]
-
 
         Lambda = self.r / Y_x2
 
@@ -296,14 +282,10 @@ class Defina():
                         ) / (1 + Lambda[1:-1] * self.dt)
         
     
-
-
 if __name__ == "__main__":
-
 
     # small test
     computation = Defina()
     computation.solve_pde()
     sol = computation.generate_solution()
-
     sol.heatmaps()
