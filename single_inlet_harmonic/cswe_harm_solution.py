@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 
 
-from single_inlet_moving_boundary.plots import *
+# from single_inlet_moving_boundary.plots import *
+from plots import *
 
 
 class CSWEHarmSolution():

@@ -6,7 +6,7 @@ import scipy
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-from single_inlet_moving_boundary.coordinate_transform_solution import CoordinateTransformSolution
+from coordinate_transform_solution import CoordinateTransformSolution
 
 class CoordinateTransform():
 

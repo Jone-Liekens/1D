@@ -1,6 +1,6 @@
 
 
-
+# this code is unfinished and does not work yet
 
 import numpy as np
 from numpy import sin, cos, tan, atan, cosh, sinh, tanh, abs, linspace, min, max, argmin, argmax, pi, mean, exp, sqrt
@@ -8,7 +8,7 @@ import scipy
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-from single_inlet_moving_boundary.plots import *
+from plots import *
 from single_inlet_moving_boundary.coordinate_transform_solution import CoordinateTransformSolution
 
 class CoordinateTransformHarm():
