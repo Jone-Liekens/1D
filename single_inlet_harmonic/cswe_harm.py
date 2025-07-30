@@ -1,7 +1,7 @@
 
 
 import numpy as np
-from numpy import sin, cos, tan, atan, cosh, sinh, tanh, abs, linspace, min, max, argmin, argmax, pi, mean, exp, sqrt, zeros
+from numpy import sin, cos, tan, atan, cosh, sinh, tanh, abs, linspace, min, max, argmin, argmax, pi, mean, exp, sqrt, zeros, ones
 import scipy
 import matplotlib.pyplot as plt
 from matplotlib import cm
@@ -156,7 +156,7 @@ class CSWEHarm():
 
         self.x = linspace(0, 1 - self.domain_reduction, 1000)
         self.y_guess = np.zeros((4, len(self.x)))
-        self.y0 = scipy.integrate.solve_bvp(deriv, bc, self.x, self.y_guess, tol=1e-6, max_nodes=20000)
+        self.y0 = scipy.integrate.solve_bvp(deriv, bc, self.x, self.y_guess, tol=1e-6, max_nodes=25000)
 
     def solve_LO_split_domain(self):
 
@@ -521,7 +521,6 @@ class CSWEHarm():
         print(np.linalg.norm(u_diff))
         return
      
-    
     def solve_FO_reduced_domain(self):
 
     
@@ -593,20 +592,25 @@ class CSWEHarm():
         
         vector_guess = 0.1 * np.ones((6, len(self.x)))
 
-        sol = scipy.integrate.solve_bvp(deriv, bc, self.x, vector_guess, tol=1e-4, max_nodes=20000)
+        sol = scipy.integrate.solve_bvp(deriv, bc, self.x, vector_guess, tol=1e-6, max_nodes=20000)
         if self.debug:
             print(sol)
 
         if sol.status:
+            print(sol)
             raise SystemError
+        
 
+        self.y1 = sol 
+
+
+        # outdated stuff
         self.x1 = sol.x
         self.dz1_r, self.dz1_c, self.dz1_s, self.u1_r, self.u1_c, self.u1_s = sol.y
         self.pol1 = sol.sol
 
         return sol
     
-
     def test_FO(self):
 
         test_x = linspace(0, 1, 5000)
