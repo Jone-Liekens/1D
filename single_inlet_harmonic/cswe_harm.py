@@ -6,15 +6,17 @@ import scipy
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
-from .plots import *
+from plots import *
 
-from .cswe_harm_solution import CSWEHarmSolution
+from cswe_harm_solution import CSWEHarmSolution
 
 counter = 0
 class CSWEHarm():
 
     def __init__(self):
-        
+
+        self.debug = False
+
         self.A = 0.72
         self.H = 7.12 
         self.L = 8e3
@@ -32,8 +34,6 @@ class CSWEHarm():
         self.d50 = 0.13e-3
         self.kappa = self.g * self.H / (self.sigma * self.L) ** 2
 
-        print(self.kappa)
-
         self.a_r = 1e-2
         self.r = 0.24
 
@@ -42,7 +42,10 @@ class CSWEHarm():
         self.U = self.epsilon * self.sigma * self.L
 
         self.small_number = 1e-5
-        self.threshold = 0.995
+        self.domain_reduction = 1e-5
+
+        self.boundary = 0.99
+
 
     def __generate_solution(self):
         # for plotting: store numerical values
@@ -85,55 +88,12 @@ class CSWEHarm():
     def h_xx(self, x):
         return 0
     
-    def solve_LO(self):
-
-        def deriv_old(x, vector):
-            dz_c, dz_s, u_c, u_s = vector
-
-            h = self.h(x)
-            h_x = self.h_x(x)
-            h_xx = self.h_xx(x)
-
-            du_c = (-dz_s + u_c * h_x) / (1 - h + self.small_number)
-            du_s = ( dz_c + u_s * h_x) / (1 - h + self.small_number) 
-            
-            friction_term = - self.r / (1 - h + self.h0)
-
-            ddz_c = 1 / self.kappa * (friction_term * u_c - u_s)
-            ddz_s = 1 / self.kappa * (friction_term * u_s + u_c)
-
-            ddz_s_approx = np.gradient(dz_s)
-            ddz_c_approx = np.gradient(dz_c)
-            ddz_s_approx = ddz_s
-            ddz_c_approx = ddz_c
-            
-            du_c_hop = ( ddz_s_approx - u_c * h_xx) / (2*h_x)
-            du_s_hop = (-ddz_c_approx - u_s * h_xx) / (2*h_x)
-
-            n = 3
-
-            print(self.x[-50:])
-            print(du_c[-50:])
-            print(du_c_hop[-50:])
-            print("-" * 5)
-            print(du_s[-50:])
-            print(du_s_hop[-50:])
-            print("\n" * 3)
-
-            du_c = np.where(h < self.threshold, du_c, du_c_hop)#(1 - h**n) * du_c + h**n * du_c_hop)
-            du_s = np.where(h < self.threshold, du_s, du_s_hop)#(1 - h**n) * du_s + h**n * du_s_hop)
-
-            
-            return [ddz_c, ddz_s, du_c, du_s]
-        
-        def deriv_boundary(x, vector):
-            
-            dz_c, dz_s, u_c, u_s = vector
+    def solve_LO_small_number(self):
+        def deriv(x, y):
+            dz_c, dz_s, u_c, u_s = y
 
             h = self.h(x)
             h_x = self.h_x(x)
-            h_xx = self.h_xx(x)
-            
             friction_term = - self.r / (1 - h + self.h0)
 
             ddz_c = 1 / self.kappa * (friction_term * u_c - u_s)
@@ -141,31 +101,31 @@ class CSWEHarm():
 
             du_c, du_s = zeros(u_c.shape), zeros(u_s.shape)
 
-            boundary = -5
-            du_c[:boundary] = (-dz_s + u_c * h_x)[:boundary] / (1 - h[:boundary])
-            du_s[:boundary] = ( dz_c + u_s * h_x)[:boundary]  / (1 - h[:boundary]) 
-            du_c[boundary:] =  ( ddz_s - u_c * h_xx )[boundary:]  / (2*h_x)
-            du_s[boundary:] =  (-ddz_c - u_s * h_xx )[boundary:]  / (2*h_x)
-
-            a1 = (-dz_s + u_c * h_x)
-            a2 = ( dz_c + u_s * h_x)
-            print(a1[-3:])
-            print(a2[-3:])
-
-            global counter
-            counter += 1
-            if counter % 50 == 0:
-                p1 = (-dz_s + u_c * h_x)[:-1] / (1 - h[:-1])
-                p2 = ( ddz_s - u_c * h_xx )  / (2*h_x)
-                plt.plot(x[:-1], p1)
-                plt.plot(x, p2)
-                plt.show()
-
-            
+            du_c = (-dz_s + u_c * h_x)/ (1 - h + self.small_number)
+            du_s = ( dz_c + u_s * h_x)  / (1 - h + self.small_number) 
             return [ddz_c, ddz_s, du_c, du_s]
         
-        def deriv(x, vector):
-            dz_c, dz_s, u_c, u_s = vector
+        def bc(y_left, y_right):
+            dz_c0, dz_s0, u_c0, u_s0 = y_left
+            dz_c1, dz_s1, u_c1, u_s1 = y_right
+
+            h_x = self.h_x(1)
+
+            return [
+                dz_c0 - 1,
+                dz_s0,
+                dz_s1 - h_x * u_c1,
+                dz_c1 + h_x * u_s1
+            ]
+
+
+        self.x = linspace(0, 1, 1000)
+        self.y_guess = np.zeros((4, len(self.x)))
+        self.y0 = scipy.integrate.solve_bvp(deriv, bc, self.x, self.y_guess, tol=1e-6, max_nodes=20000)
+
+    def solve_LO_reduced_domain(self):
+        def deriv(x, y):
+            dz_c, dz_s, u_c, u_s = y
 
             h = self.h(x)
             h_x = self.h_x(x)
@@ -179,67 +139,198 @@ class CSWEHarm():
             du_c = (-dz_s + u_c * h_x)/ (1 - h)
             du_s = ( dz_c + u_s * h_x)  / (1 - h) 
             return [ddz_c, ddz_s, du_c, du_s]
+        
+        def bc(y_left, y_right):
+            dz_c0, dz_s0, u_c0, u_s0 = y_left
+            dz_c1, dz_s1, u_c1, u_s1 = y_right
 
-        def bc(vector_left, vector_right):
-            dz_c0, dz_s0, u_c0, u_s0 = vector_left
-            dz_c1, dz_s1, u_c1, u_s1 = vector_right
-  
             h_x = self.h_x(1)
 
-            return [dz_c0 - 1, dz_s0, dz_s1 - h_x * u_c1, dz_c1 + h_x * u_s1]
-    
-        self.x = linspace(0, 1, 1000)
+            return [
+                dz_c0 - 1,
+                dz_s0,
+                dz_s1 - h_x * u_c1,
+                dz_c1 + h_x * u_s1
+            ]
 
-        # self.x = np.concatenate((
-        #     linspace(0, 0.95, 1000),
-        #     linspace(0.95, 1, 1000)[1:]
-        # ))
-        vector_guess = np.zeros((4, len(self.x)))
 
-        sol = scipy.integrate.solve_bvp(deriv_boundary, bc, self.x, vector_guess, tol=1e-4, max_nodes=5000)
-        print(sol)
+        self.x = linspace(0, 1 - self.domain_reduction, 1000)
+        self.y_guess = np.zeros((4, len(self.x)))
+        self.y0 = scipy.integrate.solve_bvp(deriv, bc, self.x, self.y_guess, tol=1e-6, max_nodes=20000)
 
-        if sol.status:
-            raise SystemError
+    def solve_LO_split_domain(self):
+
+        def deriv_l(x, y):
+            dz_c, dz_s, u_c, u_s = y
+
+            h = self.h(x)
+            h_x = self.h_x(x)
+            friction_term = - self.r / (1 - h + self.h0)
+
+            ddz_c = 1 / self.kappa * (friction_term * u_c - u_s)
+            ddz_s = 1 / self.kappa * (friction_term * u_s + u_c)
+
+            du_c, du_s = zeros(u_c.shape), zeros(u_s.shape)
+
+            du_c = (-dz_s + u_c * h_x)/ (1 - h)
+            du_s = ( dz_c + u_s * h_x)  / (1 - h) 
+            return [ddz_c, ddz_s, du_c, du_s]
         
-        self.x0 = sol.x  
-        self.dz0_c, self.dz0_s, self.u0_c, self.u0_s = sol.y
-        self.pol0 = sol.sol
+        def deriv_r(x, y):
+            dz_c, dz_s, u_c, u_s = y
 
-        return sol
+            h = self.h(x)
+            h_x = self.h_x(x)
+            h_xx = self.h_xx(x)
+            friction_term = - self.r / (1 - h + self.h0)
 
-    def solve_FO(self):
+            ddz_c = 1 / self.kappa * (friction_term * u_c - u_s)
+            ddz_s = 1 / self.kappa * (friction_term * u_s + u_c)
 
-        def deriv_old(x, vector):
-            dz1_r, dz1_c, dz1_s, u1_r, u1_c, u1_s = vector
+            du_c, du_s = zeros(u_c.shape), zeros(u_s.shape)
 
-            dz0_c    , dz0_s    , u0_c    , u0_s     = self.pol0(x)
-            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.pol0(x, nu=1)
-            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.pol0(x, nu=2)
+            du_c =  ( ddz_s - u_c * h_xx)  / (2*h_x)
+            du_s =  (-ddz_c - u_s * h_xx)  / (2*h_x)
+            return [ddz_c, ddz_s, du_c, du_s]
+        
+        def bc_l(y_left, y_right):
+            dz_c0, dz_s0, u_c0, u_s0 = y_left
+            dz_c1, dz_s1, u_c1, u_s1 = y_right
+
+            h_x = self.h_x(1)
+
+            return [
+                dz_c0 - 1,
+                dz_s0,
+                dz_c1 - self.p[0],
+                dz_s1 - self.p[1]
+            ]
+        
+        def bc_r(y_left, y_right):
+            dz_c0, dz_s0, u_c0, u_s0 = y_left
+            dz_c1, dz_s1, u_c1, u_s1 = y_right
+
+            h_x = self.h_x(1)
+
+            return [
+                dz_c0 - self.p[0],
+                dz_s0 - self.p[1],
+                dz_s1 - h_x * u_c1,
+                dz_c1 + h_x * u_s1
+            ]
+        
+        def generate_u_diff(plot=True):
+
+            
+            self.yl0 = scipy.integrate.solve_bvp(deriv_l, bc_l, self.xl, self.yl_guess, tol=1e-6, max_nodes=20000)
+            if self.debug and 0:
+                print(self.yl0)
+            self.yr0 = scipy.integrate.solve_bvp(deriv_r, bc_r, self.xr, self.yr_guess, tol=1e-6, max_nodes=20000)
+            if self.debug and 0:
+                print(self.yr0)
+            if self.yl0.status != 0 or self.yr0.status != 0:
+                print(self.yl0)
+                print(self.yr0)
+                raise SystemError
             
 
-            # print(dz0_c   , dz0_s   , u0_c   , u0_s, dz0_c_dx, dz0_s_dx, u0_c_dx, u0_s_dx )
+            if self.debug:
+                if plot:
+                    st = int(len(self.yl0.x) * (1 - (1 - self.boundary) * 10 / self.boundary))
+                    fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+
+                    for i in range(4):
+                        axs[i].plot(self.yl0.x[st:], self.yl0.y[i, st:])
+                        axs[i].plot(self.yr0.x, self.yr0.y[i])
+                    plt.show()
+
+            u_l = self.yl0.y[2:, -1] 
+            u_r = self.yr0.y[2:, 0]
+
+            u_diff = u_r - u_l
+            return u_diff
+        
+        def generate_J_u_diff():
+
+            u_diff = generate_u_diff(plot=False)
+            eps = 1e-7
+            J = zeros((len(self.p), len(self.p)))
+            for i in range(len(self.p)):
+                self.p[i] += eps
+                new_u_diff = generate_u_diff(plot=False)
+                J[:, i] = (new_u_diff - u_diff) / eps
+                self.p[i] -= eps
+
+            # test J_u
+            if self.debug:
+                test_p = np.random.randn(2) * 1e-2
+                print('test')
+                self.p += test_p
+                print(generate_u_diff(plot=False))
+                self.p -= test_p
+                print(u_diff + J @ test_p)
+                print(u_diff)
+
+            return J
+
+
+        self.xl = linspace(0, self.boundary, 10000)
+        self.xr = linspace(self.boundary, 1, 10000)
+
+        s = 0.1
+        self.yl_guess = s * np.ones((4, len(self.xl)))
+        self.yr_guess = s * np.ones((4, len(self.xr)))
+        self.p = np.array([s, s])
+
+        u_diff = generate_u_diff()
+        counter = 0
+        while np.linalg.norm(u_diff) > 1e-12 and counter < 10:
+            print(np.linalg.norm(u_diff))
+            counter += 1
+            
+            J_u_diff = generate_J_u_diff()
+
+            ideal_boundary = np.linalg.solve(J_u_diff, u_diff)
+            if self.debug:
+                print("here")
+                print(self.p)
+                print(u_diff)
+                print(J_u_diff)
+                print(ideal_boundary)
+
+            self.p = self.p - ideal_boundary
+            u_diff = generate_u_diff()
+
+
+        print(np.linalg.norm(u_diff))
+        return
+
+    def solve_FO_split_domain(self):
+
+
+        def deriv_l1(x, y):
+            dz1_r, dz1_c, dz1_s, u1_r, u1_c, u1_s = y
+
+            dz0_c    , dz0_s    , u0_c    , u0_s     = self.yl0.sol(x)
+            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.yl0.sol(x, nu=1)
+            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.yl0.sol(x, nu=2)
+
+            # if self.debug:
+            #     plt.plot(x, dz0_c)
+            #     plt.plot(x, dz0_c_dx)
+            #     plt.plot(x, dz0_s)
+            #     plt.plot(x, u0_c)
+            #     plt.plot(x, u0_s)
+
+
 
             h, h_x, h_xx = self.h(x), self.h_x(x), self.h_xx(x)
             
-            # where x < 0.9
-            # if x > 0.9, change equations: because 1 - h approx infinity, the factor multiplying it should be 0`
-
             # continuity equations
-            du1_r = 1 / (1 - h + self.small_number) * (
-                h_x * u1_r             - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            )
-            du1_c = 1 / (1 - h + self.small_number) * (
-                h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            ) 
-            du1_s = 1 / (1 - h + self.small_number) * (
-                h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            ) 
-
-
-
-
-
+            du1_r = 1 / (1 - h) * (h_x * u1_r             - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s))
+            du1_c = 1 / (1 - h) * (h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s))
+            du1_s = 1 / (1 - h) * (h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s))
+            
             # momentum equations
             ddz1_r = (1 / (1 - h + self.h0) * (
                 - self.r * u1_r
@@ -256,130 +347,190 @@ class CSWEHarm():
                 + 1 / 2 * (  dz0_c *  u0_c - dz0_s *  u0_s)
                 - 1 / 2 * (  dz0_c * dz0_s_dx + dz0_s * dz0_c_dx) * self.kappa
             ) - 1/2 * (u0_c * u0_s_dx + u0_s * u0_c_dx) + 2 * u1_c) / self.kappa
+        
+            return [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]
+        
+        def deriv_r1(x, y):
+            dz1_r, dz1_c, dz1_s, u1_r, u1_c, u1_s = y
+
+            dz0_c    , dz0_s    , u0_c    , u0_s     = self.yr0.sol(x)
+            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.yr0.sol(x, nu=1)
+            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.yr0.sol(x, nu=2)
+
+            fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+            for i in range(4): axs[i].plot(x, self.yr0.sol(x)[i])
+            plt.show()
+
+            fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+            for i in range(4): axs[i].plot(x, self.yr0.sol(x, nu = 1)[i])
+            plt.show()
+
+            fig, axs = plt.subplots(1, 4, figsize=(20, 5))
+            for i in range(4): axs[i].plot(x, self.yr0.sol(x, nu = 2)[i])
+            plt.show()
+
+            raise SystemError
 
 
-            # for elem in [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]:
-            #     print(elem.shape, min(elem), max(elem), min(abs(elem)))
-            # print(" ")
-                # for val in elem:
-                #     print(val, end='\n')
-                # print(('--' * 50 + "\n")  * 20)
-
+            h, h_x, h_xx = self.h(x), self.h_x(x), self.h_xx(x)
+        
+            # momentum equations
+            ddz1_r = (1 / (1 - h + self.h0) * (
+                - self.r * u1_r
+                - 1 / 2 * (  dz0_c *  u0_s - dz0_s *  u0_c)
+                - 1 / 2 * (  dz0_s * dz0_s_dx + dz0_c * dz0_c_dx) * self.kappa
+            ) - 1/2 * (u0_c * u0_c_dx + u0_s * u0_s_dx)) / self.kappa
+            ddz1_c = (1 / (1 - h + self.h0) * (
+                - self.r * u1_c
+                - 1 / 2 * (  dz0_c *  u0_s + dz0_s *  u0_c)
+                - 1 / 2 * (- dz0_s * dz0_s_dx + dz0_c * dz0_c_dx) * self.kappa
+            ) - 1/2 * (u0_c * u0_c_dx - u0_s * u0_s_dx) - 2 * u1_s) / self.kappa
+            ddz1_s = (1 / (1 - h + self.h0) * (
+                - self.r * u1_s
+                + 1 / 2 * (  dz0_c *  u0_c - dz0_s *  u0_s)
+                - 1 / 2 * (  dz0_c * dz0_s_dx + dz0_s * dz0_c_dx) * self.kappa
+            ) - 1/2 * (u0_c * u0_s_dx + u0_s * u0_c_dx) + 2 * u1_c) / self.kappa
             
             cc_xx = (dz0_c * u0_c_dxx + 2 * dz0_c_dx * u0_c_dx + dz0_c_dxx * u0_c)
             ss_xx = (dz0_s * u0_s_dxx + 2 * dz0_s_dx * u0_s_dx + dz0_s_dxx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
             cs_xx = (dz0_s * u0_c_dxx + 2 * dz0_s_dx * u0_c_dx + dz0_s_dxx * u0_c) # ( dz0_s * u0_s +  dz0_c * u0_c)
             sc_xx = (dz0_c * u0_s_dxx + 2 * dz0_c_dx * u0_s_dx + dz0_c_dxx * u0_s)
                         
-            du1_r_hop = (        - u1_c * h_xx + (cc_xx + ss_xx) / 2) / (2*h_x)
-            du1_c_hop = ( ddz1_s - u1_c * h_xx + (cc_xx - ss_xx) / 2) / (2*h_x)
-            du1_s_hop = (-ddz1_c - u1_s * h_xx + (cs_xx + sc_xx) / 2) / (2*h_x)
+            du1_r_hop = (          - u1_c * h_xx + (cc_xx + ss_xx) / 2) / (2*h_x)
+            du1_c_hop = ( 2*ddz1_s - u1_c * h_xx + (cc_xx - ss_xx) / 2) / (2*h_x)
+            du1_s_hop = (-2*ddz1_c - u1_s * h_xx + (cs_xx + sc_xx) / 2) / (2*h_x)
+            
 
-            du1_r = np.where(h < self.threshold, du1_r, du1_r_hop)
-            du1_c = np.where(h < self.threshold, du1_c, du1_c_hop)
-            du1_s = np.where(h < self.threshold, du1_s, du1_s_hop)
-
-
-
-                
-
-
-
-            num_r = h_x * u1_r             - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            num_c = h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            num_s = h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            print(num_r[-4:])
-            print(num_c[-4:])
-            print(num_s[-4:])
-            print('-' * 5)
-
-            return [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]
+            return [ddz1_r, ddz1_c, ddz1_s, du1_r_hop, du1_c_hop, du1_s_hop]
         
-        def deriv_old2(x, vector):
-            dz1_r, dz1_c, dz1_s, u1_r, u1_c, u1_s = vector
+        def bc_l1(y_left, y_right):
+            dz1_r0, dz1_c0, dz1_s0, u1_r0, u1_c0, u1_s0 = y_left
+            dz1_r1, dz1_c1, dz1_s1, u1_r1, u1_c1, u1_s1 = y_right
 
-            dz0_c    , dz0_s    , u0_c    , u0_s     = self.pol0(x)
-            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.pol0(x, nu=1)
-            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.pol0(x, nu=2)
-            
-
-            # print(dz0_c   , dz0_s   , u0_c   , u0_s, dz0_c_dx, dz0_s_dx, u0_c_dx, u0_s_dx )
-
-            h, h_x, h_xx = self.h(x), self.h_x(x), self.h_xx(x)
-            
-            # where x < 0.9
-            # if x > 0.9, change equations: because 1 - h approx infinity, the factor multiplying it should be 0`
-
-            
-            # momentum equations
-            ddz1_r = (1 / (1 - h + self.h0) * (
-                - self.r * u1_r
-                - 1 / 2 * (  dz0_c *  u0_s - dz0_s *  u0_c)
-                - 1 / 2 * (  dz0_s * dz0_s_dx + dz0_c * dz0_c_dx) * self.kappa
-            ) - 1/2 * (u0_c * u0_c_dx + u0_s * u0_s_dx)) / self.kappa
-            ddz1_c = (1 / (1 - h + self.h0) * (
-                - self.r * u1_c
-                - 1 / 2 * (  dz0_c *  u0_s + dz0_s *  u0_c)
-                - 1 / 2 * (- dz0_s * dz0_s_dx + dz0_c * dz0_c_dx) * self.kappa
-            ) - 1/2 * (u0_c * u0_c_dx - u0_s * u0_s_dx) - 2 * u1_s) / self.kappa
-            ddz1_s = (1 / (1 - h + self.h0) * (
-                - self.r * u1_s
-                + 1 / 2 * (  dz0_c *  u0_c - dz0_s *  u0_s)
-                - 1 / 2 * (  dz0_c * dz0_s_dx + dz0_s * dz0_c_dx) * self.kappa
-            ) - 1/2 * (u0_c * u0_s_dx + u0_s * u0_c_dx) + 2 * u1_c) / self.kappa
-
-            # continuity equations
-            boundary = -1
-            du1_r = zeros(u1_r.shape)
-            du1_c = zeros(u1_c.shape)
-            du1_s = zeros(u1_s.shape)
-
-            du1_r[:boundary] = 1 / (1 - h)[:boundary] * (
-                h_x * u1_r             - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            )[:boundary]
-            du1_c[:boundary] = 1 / (1 - h)[:boundary] * (
-                h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            )[:boundary]
-            du1_s[:boundary] = 1 / (1 - h)[:boundary] * (
-                h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            )[:boundary]
-
-            cc_xx = (dz0_c * u0_c_dxx + 2 * dz0_c_dx * u0_c_dx + dz0_c_dxx * u0_c)
-            ss_xx = (dz0_s * u0_s_dxx + 2 * dz0_s_dx * u0_s_dx + dz0_s_dxx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            cs_xx = (dz0_s * u0_c_dxx + 2 * dz0_s_dx * u0_c_dx + dz0_s_dxx * u0_c) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            sc_xx = (dz0_c * u0_s_dxx + 2 * dz0_c_dx * u0_s_dx + dz0_c_dxx * u0_s)
-                    
-
-            du1_r[boundary:] = (        - u1_c * h_xx + (cc_xx + ss_xx) / 2)[boundary:] / (2*h_x)
-            du1_c[boundary:] = ( ddz1_s - u1_c * h_xx + (cc_xx - ss_xx) / 2)[boundary:] / (2*h_x)
-            du1_s[boundary:] = (-ddz1_c - u1_s * h_xx + (cs_xx + sc_xx) / 2)[boundary:] / (2*h_x)
-
-
-
-            # for elem in [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]:
-            #     print(elem.shape, min(elem), max(elem), min(abs(elem)))
-            # print(" ")
-                # for val in elem:
-                #     print(val, end='\n')
-                # print(('--' * 50 + "\n")  * 20)
-
-
-            num_r = h_x * u1_r             - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            num_c = h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            num_s = h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            # print(num_r[-4:])
-            # print(num_c[-4:])
-            # print(num_s[-4:])
-            # print('-' * 5)
-
-            return [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]
+            return [
+                dz1_r0, dz1_s0, dz1_c0,
+                dz1_r1 - self.p[0],
+                dz1_c1 - self.p[1],
+                dz1_s1 - self.p[2]
+            ]
         
+        def bc_r1(y_left, y_right):
+            dz1_r0, dz1_c0, dz1_s0, u1_r0, u1_c0, u1_s0 = y_left
+            dz1_r1, dz1_c1, dz1_s1, u1_r1, u1_c1, u1_s1 = y_right
+
+            # only at the right boundary, the leading order solution gets used
+            dz0_c   , dz0_s   , u0_c   , u0_s    = self.yr0.sol(1)
+            dz0_c_dx, dz0_s_dx, u0_c_dx, u0_s_dx = self.yr0.sol(1, nu=1)
+
+            h_x = self.h_x(1)
+            return [
+                dz1_r0 - self.p[0],
+                dz1_c0 - self.p[1],
+                dz1_s0 - self.p[2],
+                h_x * u1_r1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s),
+                h_x * u1_c1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) - 2 * dz1_s1,
+                h_x * u1_s1 - 1 / 2 * (dz0_c * u0_s_dx + dz0_c_dx * u0_s + dz0_s * u0_c_dx + dz0_s_dx * u0_c) + 2 * dz1_c1
+            ]
+        
+        def generate_u1_diff(plot=True):
+
+            self.yl1 = scipy.integrate.solve_bvp(deriv_l1, bc_l1, self.xl, self.yl_guess, tol=1e-4, max_nodes=5000)
+            if self.debug:
+                print(self.yl1)
+            self.yr1 = scipy.integrate.solve_bvp(deriv_r1, bc_r1, self.xr, self.yr_guess, tol=1e-4, max_nodes=5000)
+            if self.debug:
+                print(self.yr1)
+
+            if self.yl1.status != 0 or self.yr1.status != 0:
+                print(self.yl1)
+                print(self.yr1)
+                raise SystemError
+            
+
+            if self.debug:
+                if plot:
+                    st = len(self.yl1.x) - int((1 - self.boundary) * 10 / self.boundary * len(self.yl1.x))
+                    fig, axs = plt.subplots(1, 6, figsize=(30, 5))
+
+                    for i in range(6):
+                        axs[i].plot(self.yl1.x[st:], self.yl1.y[i, st:])
+                        axs[i].plot(self.yr1.x, self.yr1.y[i])
+                    plt.show()
+                    print("-\n" * 10)
+
+            u_l = self.yl1.y[3:, -1] 
+            u_r = self.yr1.y[3:, 0]
+
+            u_diff = u_r - u_l
+            return u_diff
+
+        def generate_J_u1_diff():
+
+            u_diff = generate_u1_diff(plot=False)
+            eps = 1e-7
+            J = zeros((len(self.p), len(self.p)))
+            for i in range(len(self.p)):
+                self.p[i] += eps
+                new_u_diff = generate_u1_diff(plot=False)
+                J[:, i] = (new_u_diff - u_diff) / eps
+                self.p[i] -= eps
+
+            # test J_u
+            if self.debug:
+                test_p = np.random.randn(3) * 1e-2
+                print('test')
+                self.p += test_p
+                print(generate_u1_diff(plot=False))
+                self.p -= test_p
+                print(u_diff + J @ test_p)
+                print(u_diff)
+
+            return J
+        
+
+
+        self.xl = linspace(0, self.boundary, 1000)
+        self.xr = linspace(self.boundary, 1, 1000)
+
+        s = 1e-3
+        self.yl_guess = s * np.ones((6, len(self.xl)))
+        self.yr_guess = s * np.ones((6, len(self.xr)))
+        self.p = np.array([s, s, s])
+
+        u_diff = generate_u1_diff()
+        counter = 0
+        while np.linalg.norm(u_diff) > 1e-10 and counter < 6:
+            print(u_diff)
+            print(np.linalg.norm(u_diff))
+            counter += 1
+            
+            J_u_diff = generate_J_u1_diff()
+
+            ideal_boundary = np.linalg.solve(J_u_diff, u_diff)
+            if self.debug:
+                print("here")
+                print(self.p)
+                print(u_diff)
+                print(J_u_diff)
+                print(ideal_boundary)
+
+            self.p = self.p - ideal_boundary
+            u_diff = generate_u1_diff()
+
+
+        print(np.linalg.norm(u_diff))
+        return
+     
+    
+    def solve_FO_reduced_domain(self):
+
+    
         def deriv(x, vector):
             dz1_r, dz1_c, dz1_s, u1_r, u1_c, u1_s = vector
 
-            dz0_c    , dz0_s    , u0_c    , u0_s     = self.pol0(x)
-            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.pol0(x, nu=1)
-            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.pol0(x, nu=2)
+            dz0_c    , dz0_s    , u0_c    , u0_s     = self.y0.sol(x)
+            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.y0.sol(x, nu=1)
+            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.y0.sol(x, nu=2)
             
             h, h_x, h_xx = self.h(x), self.h_x(x), self.h_xx(x)
             
@@ -411,11 +562,11 @@ class CSWEHarm():
                 h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
             )
 
-            a1 = h_x * u1_r - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            a2 = h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            a3 = h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s* u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            print(a1[-3:], a2[-3:], a3[-3:])
-
+            if self.debug:
+                a1 = h_x * u1_r - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
+                a2 = h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
+                a3 = h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s* u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
+                print(a1[-3:], a2[-3:], a3[-3:])
 
             return [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]
     
@@ -424,14 +575,15 @@ class CSWEHarm():
             dz1_r1, dz1_c1, dz1_s1, u1_r1, u1_c1, u1_s1 = vector_right
 
             # only at the right boundary, the leading order solution gets used
-            dz0_c   , dz0_s   , u0_c   , u0_s    = self.pol0(1)
-            dz0_c_dx, dz0_s_dx, u0_c_dx, u0_s_dx = self.pol0(1, nu=1)
+            dz0_c   , dz0_s   , u0_c   , u0_s    = self.y0.sol(1)
+            dz0_c_dx, dz0_s_dx, u0_c_dx, u0_s_dx = self.y0.sol(1, nu=1)
 
             h_x = self.h_x(1)
             a1 = h_x * u1_r1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
             a2 = h_x * u1_c1 - 2 * dz1_s1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
             a3 = h_x * u1_s1 + 2 * dz1_c1 - 1 / 2 * (dz0_s* u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            print(a1, a2, a3)
+            if self.debug:
+                print(a1, a2, a3)
             return [
                 dz1_r0, dz1_s0, dz1_c0,
                 h_x * u1_r1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s),
@@ -441,8 +593,9 @@ class CSWEHarm():
         
         vector_guess = 0.1 * np.ones((6, len(self.x)))
 
-        sol = scipy.integrate.solve_bvp(deriv, bc, self.x, vector_guess, tol=1e-3, max_nodes=20000)
-        print(sol)
+        sol = scipy.integrate.solve_bvp(deriv, bc, self.x, vector_guess, tol=1e-4, max_nodes=20000)
+        if self.debug:
+            print(sol)
 
         if sol.status:
             raise SystemError
@@ -453,6 +606,7 @@ class CSWEHarm():
 
         return sol
     
+
     def test_FO(self):
 
         test_x = linspace(0, 1, 5000)

@@ -9,7 +9,6 @@ from matplotlib import cm
 # from single_inlet_moving_boundary.plots import *
 from plots import *
 
-
 class CSWEHarmSolution():
 
     def __init__(self, t, x, dz0_xt, u0_xt, dz1_xt, u1_xt, dz_xt, u_xt):
