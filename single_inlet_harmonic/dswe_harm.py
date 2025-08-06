@@ -1,17 +1,15 @@
 
 
 import numpy as np
-from numpy import sin, cos, tan, atan, cosh, sinh, tanh, abs, linspace, min, max, argmin, argmax, pi, mean, exp, sqrt, zeros, ones, nan
+from numpy import sin, cos, tan, atan, cosh, sinh, tanh, abs, linspace, min, max, argmin, argmax, pi, mean, exp, sqrt, zeros, ones
 import scipy
 import matplotlib.pyplot as plt
 from matplotlib import cm
 
 from plots import *
 
-from cswe_harm_solution import CSWEHarmSolution
-
 counter = 0
-class CSWEHarm():
+class DSWEHarm():
 
     def __init__(self):
 
@@ -27,54 +25,22 @@ class CSWEHarm():
         self.rho_w = 1025
         self.rho_s = 2650
 
-        self.h0 = 0.0025
-        p = 0.4
+        # self.h0 = 0.0025
+
         self.C_D = 0.0025
         self.lmbda = 6.8e-6
         self.d50 = 0.13e-3
         self.kappa = self.g * self.H / (self.sigma * self.L) ** 2
 
-        self.a_r = 1e-2
+        self.a_r = 0.1
+        
         self.r = 0.24
 
         self.epsilon = self.A / self.H
         self.eta = self.sigma * self.L / sqrt(self.g * self.H)
         self.U = self.epsilon * self.sigma * self.L
 
-        self.small_number = nan
-        self.domain_reduction = nan
-        self.boundary = nan
-
-
-    def __generate_solution(self):
-        # for plotting: store numerical values
-        self.t = np.linspace(0, 2 * pi, 1000)
-        self.u0_xt = 0 + \
-            self.u0_c[:, np.newaxis] * cos(self.t[np.newaxis, :]) + \
-            self.u0_s[:, np.newaxis] * sin(self.t[np.newaxis, :])
-        self.dz0_xt = 0 + \
-            self.dz0_c[:, np.newaxis] * cos(self.t[np.newaxis, :]) + \
-            self.dz0_s[:, np.newaxis] * sin(self.t[np.newaxis, :])
-        
-        self.dz1_xt = 0 + \
-            np.tile(self.dz1_r, (len(self.t), 1)).T + \
-            self.dz1_c[:, np.newaxis] * cos(2 * self.t[np.newaxis, :]) + \
-            self.dz1_s[:, np.newaxis] * sin(2 * self.t[np.newaxis, :])
-        
-        self.u1_xt = 0 + \
-            np.tile(self.u1_r, (len(self.t), 1)).T + \
-            self.u1_c[:, np.newaxis] * cos(2 * self.t[np.newaxis, :]) + \
-            self.u1_s[:, np.newaxis] * sin(2 * self.t[np.newaxis, :])
-        
-        
-        self.dz_xt = self.dz0_xt + self.epsilon * self.dz1_xt
-        self.u_xt  = self.u0_xt  + self.epsilon * self.u1_xt
-
-        return CSWEHarmSolution(self.t, self.x, self.dz0_xt, self.u0_xt, self.dz1_xt, self.u1_xt, self.dz_xt, self.u_xt)
-
-    def solve(self):
-        self.solve_LO()
-        self.solve_FO()
+        self.domain = 1.1
 
     def h(self, x):
         return x
@@ -87,21 +53,32 @@ class CSWEHarm():
     def h_xx(self, x):
         return 0
     
-    def solve_LO_small_number(self):
+    def solve_LO(self):
         def deriv(x, y):
             dz_c, dz_s, u_c, u_s = y
-
             h = self.h(x)
             h_x = self.h_x(x)
-            friction_term = - self.r / (1 - h + self.h0)
+
+
+            eta = 1/2 + 1/2 * scipy.special.erf(2 * (1 - h) / self.a_r)
+            Y = eta * (1 - h) + self.a_r / 4 / sqrt(pi) * exp(
+                - 4 * ((1 - h) / self.a_r) ** 2
+            )
+
+            # I guess these could also be computed analytically, but that takes way more time
+            # eta_x = np.gradient(eta, x, edge_order=2) 
+            Y_x = np.gradient(Y, x, edge_order=2) # 2nd order derivatives at interior points and at boundary
+            
+            friction_term = - self.r / Y
 
             ddz_c = 1 / self.kappa * (friction_term * u_c - u_s)
             ddz_s = 1 / self.kappa * (friction_term * u_s + u_c)
 
             du_c, du_s = zeros(u_c.shape), zeros(u_s.shape)
 
-            du_c = (-dz_s + u_c * h_x)/ (1 - h + self.small_number)
-            du_s = ( dz_c + u_s * h_x)  / (1 - h + self.small_number) 
+            du_c = (-dz_s * eta - u_c * Y_x) / Y
+            du_s = ( dz_c * eta - u_s * Y_x) / Y
+
             return [ddz_c, ddz_s, du_c, du_s]
         
         def bc(y_left, y_right):
@@ -113,14 +90,20 @@ class CSWEHarm():
             return [
                 dz_c0 - 1,
                 dz_s0,
-                dz_s1 - h_x * u_c1,
-                dz_c1 + h_x * u_s1
+                u_c1,
+                u_s1
             ]
 
 
-        self.x = linspace(0, 1, 1000)
+        self.x = linspace(0, self.domain, 1000)
         self.y_guess = np.zeros((4, len(self.x)))
         self.y0 = scipy.integrate.solve_bvp(deriv, bc, self.x, self.y_guess, tol=1e-6, max_nodes=20000)
+
+        if self.y0.status:
+            print(self.y0)
+            raise SystemError
+
+
 
     def solve_LO_reduced_domain(self):
         def deriv(x, y):
@@ -598,129 +581,6 @@ class CSWEHarm():
                 print('c', dz0_c)
                 print('d', u0_c_dx)
                 
-            return [
-                dz1_r0, dz1_s0, dz1_c0,
-                h_x * u1_r1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s),
-                h_x * u1_c1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) - 2 * dz1_s1,
-                h_x * u1_s1 - 1 / 2 * (dz0_c * u0_s_dx + dz0_c_dx * u0_s + dz0_s * u0_c_dx + dz0_s_dx * u0_c) + 2 * dz1_c1
-            ]
-        
-        vector_guess = 0.1 * np.ones((6, len(self.x)))
-
-        sol = scipy.integrate.solve_bvp(deriv, bc, self.x, vector_guess, tol=1e-6, max_nodes=20000)
-        if self.debug:
-            print(sol)
-
-        if sol.status:
-            print(sol)
-            raise SystemError
-        
-
-        self.y1 = sol 
-
-
-        if self.debug:
-
-            x = self.y1.x
-
-            fix, axs = plt.subplots(1, 4, figsize=(20, 5))
-            for i in range(4):
-                axs[i].plot(x, self.y0.sol(x)[i])
-            plt.show()
-
-            fix, axs = plt.subplots(1, 4, figsize=(20, 5))
-            for i in range(4):
-                axs[i].plot(x, self.y0.sol(x, nu = 1)[i])
-            plt.show()
-
-            
-            
-
-        return sol
-    
-    def solve_FO_small_number(self):
-
-    
-        def deriv(x, vector):
-            dz1_r, dz1_c, dz1_s, u1_r, u1_c, u1_s = vector
-
-            dz0_c    , dz0_s    , u0_c    , u0_s     = self.y0.sol(x)
-            dz0_c_dx , dz0_s_dx , u0_c_dx , u0_s_dx  = self.y0.sol(x, nu=1)
-            dz0_c_dxx, dz0_s_dxx, u0_c_dxx, u0_s_dxx = self.y0.sol(x, nu=2)
-            
-            h, h_x, h_xx = self.h(x), self.h_x(x), self.h_xx(x)
-            
-            # momentum equations
-            ddz1_r = (1 / (1 - h + self.h0) * (
-                - self.r * u1_r
-                - 1 / 2 * (  dz0_c *  u0_s - dz0_s *  u0_c)
-                - 1 / 2 * (  dz0_s * dz0_s_dx + dz0_c * dz0_c_dx) * self.kappa
-            ) - 1/2 * (u0_c * u0_c_dx + u0_s * u0_s_dx)) / self.kappa
-            ddz1_c = (1 / (1 - h + self.h0) * (
-                - self.r * u1_c
-                - 1 / 2 * (  dz0_c *  u0_s + dz0_s *  u0_c)
-                - 1 / 2 * (- dz0_s * dz0_s_dx + dz0_c * dz0_c_dx) * self.kappa
-            ) - 1/2 * (u0_c * u0_c_dx - u0_s * u0_s_dx) - 2 * u1_s) / self.kappa
-            ddz1_s = (1 / (1 - h + self.h0) * (
-                - self.r * u1_s
-                + 1 / 2 * (  dz0_c *  u0_c - dz0_s *  u0_s)
-                - 1 / 2 * (  dz0_c * dz0_s_dx + dz0_s * dz0_c_dx) * self.kappa
-            ) - 1/2 * (u0_c * u0_s_dx + u0_s * u0_c_dx) + 2 * u1_c) / self.kappa
-
-
-            du1_r = 1 / (1 - h + self.small_number)* (
-                h_x * u1_r             - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            )
-            du1_c = 1 / (1 - h + self.small_number) * (
-                h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            )
-            du1_s = 1 / (1 - h + self.small_number) * (
-                h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s * u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            )
-
-            if self.debug:
-                a1 = h_x * u1_r - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-                a2 = h_x * u1_c - 2 * dz1_s - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-                a3 = h_x * u1_s + 2 * dz1_c - 1 / 2 * (dz0_s* u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-                print(x[-3:], a1[-3:], a2[-3:], a3[-3:])
-
-
-                # let's examine all these terms individually
-                print('a', (h_x * u1_r)[-3:])
-                print('b', (- 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s))[-3:])
-                print('c', dz0_c[-5:])
-                print('d', u0_c_dx[-5:])
-                 # ( dz0_s * u0_s +  dz0_c * u0_c)
-                
-
-
-
-            return [ddz1_r, ddz1_c, ddz1_s, du1_r, du1_c, du1_s]
-    
-        def bc(vector_left, vector_right):
-            dz1_r0, dz1_c0, dz1_s0, u1_r0, u1_c0, u1_s0 = vector_left
-            dz1_r1, dz1_c1, dz1_s1, u1_r1, u1_c1, u1_s1 = vector_right
-
-            # only at the right boundary, the leading order solution gets used
-            dz0_c   , dz0_s   , u0_c   , u0_s    = self.y0.sol(1)
-            dz0_c_dx, dz0_s_dx, u0_c_dx, u0_s_dx = self.y0.sol(1, nu=1)
-
-            h_x = self.h_x(1 - self.domain_reduction)
-            a1 = h_x * u1_r1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s) # ( dz0_s * u0_s +  dz0_c * u0_c)
-            a2 = h_x * u1_c1 - 2 * dz1_s1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s) # (-dz0_s * u0_s +  dz0_c * u0_c)
-            a3 = h_x * u1_s1 + 2 * dz1_c1 - 1 / 2 * (dz0_s* u0_c_dx + dz0_s_dx * u0_c + dz0_c * u0_s_dx + dz0_c_dx * u0_s) # ( dz0_s * u0_c +  dz0_c * u0_s)
-            if self.debug:
-                print("bc", a1, a2, a3)
-                print('a', (h_x * u1_r1))
-                print('b', (- 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s)))
-                print('c', dz0_c)
-                print('d', u0_c_dx)
-
-
-            print('a', h_x * u1_r1, - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s))
-            print('b', h_x * u1_c1, - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c - dz0_s * u0_s_dx - dz0_s_dx * u0_s), - 2 * dz1_s1)
-            print('c', h_x * u1_s1, - 1 / 2 * (dz0_c * u0_s_dx + dz0_c_dx * u0_s + dz0_s * u0_c_dx + dz0_s_dx * u0_c), + 2 * dz1_c1)
-            
             return [
                 dz1_r0, dz1_s0, dz1_c0,
                 h_x * u1_r1 - 1 / 2 * (dz0_c * u0_c_dx + dz0_c_dx * u0_c + dz0_s * u0_s_dx + dz0_s_dx * u0_s),
