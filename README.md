@@ -1,3 +1,3 @@
 
 
-# Files that start with \# do not work
+# Files that start with X do not work

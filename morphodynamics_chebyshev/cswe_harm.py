@@ -39,8 +39,8 @@ def interpolate(x, y, debug=False):
     output_ps = np.zeros((n_components, pol_degree))
 
     for l in range(n_components): # which component? dzeta_c, dzeta_s, u_c, u_s = 4
-
-        for i in range(1, nx, 10): # how many elements cut-off?
+        prev_res = 1e9
+        for i in range(1, nx, 50): # how many elements cut-off?
 
             red_x = x[:-i]
             red_y = y[l, :-i]
@@ -48,6 +48,11 @@ def interpolate(x, y, debug=False):
             M = red_x[:, np.newaxis]**np.arange(pol_degree)
             p, res, rnk, s = scipy.linalg.lstsq(M, red_y)
             
+            print(red_y.shape)
+            print(p.shape)
+            print(M.shape)
+            print(red_x.shape)
+            print(res)
             if res < 1e-6:
 
                 output_ps[l, :] = p
@@ -101,7 +106,6 @@ class CSWEHarm():
 
         self.set_derivative_vars()
     
-
     def set_derivative_vars(self):
         self.epsilon = self.A / self.H
         self.eta = self.sigma * self.L / sqrt(self.g * self.H)
