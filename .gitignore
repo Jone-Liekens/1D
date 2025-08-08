@@ -1,8 +1,9 @@
 venv/**
-output/**
-__pycache__/**
+
+**/output/**
+**/basic_math/**
+
 **/__pycache__/**
-.*
 *.pkl
+.*
 !.gitignore
-test*

@@ -1,7 +1,7 @@
 
 
 
-# use (?)
+# use numba maybe?
 # from numba import jit  
 # @jit 
 

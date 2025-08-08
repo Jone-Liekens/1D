@@ -1,4 +1,5 @@
 
+# region Imports
 import numpy as np
 from numpy import sin, cos, tan, atan, cosh, sinh, tanh, abs, linspace, min, max, argmin, argmax, pi, mean, exp, sqrt
 import scipy
@@ -6,6 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import pickle
 import os
+# endregion
 
 def heatmap(T_mesh, X_mesh, V_xt, title = "Something"):
     fig, ax = plt.subplots()
